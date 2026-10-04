@@ -58,3 +58,11 @@ src/frontend/cypress/screenshots
 src/shipping/target/
 
 !src/currency/build
+# Portfolio-local secrets and credentials
+.env.local
+.env.*.local
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
