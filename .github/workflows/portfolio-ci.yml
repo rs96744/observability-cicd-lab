@@ -1,0 +1,76 @@
+name: Portfolio CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - Makefile
+      - "compose*.yaml"
+      - "portfolio/**"
+      - ".github/workflows/portfolio-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portfolio-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate portfolio configuration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Display tool versions
+        run: |
+          git --version
+          docker compose version
+
+      - name: Validate Compose configuration
+        run: |
+          docker compose \
+            --env-file .env \
+            --env-file .env.override \
+            -f compose.yaml \
+            -f compose.portfolio.yaml \
+            -f compose.observability.yaml \
+            -f compose.extras.yaml \
+            config --quiet
+
+      - name: Check changed-file whitespace
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            git diff --check "$BASE_SHA" "$HEAD_SHA"
+          else
+            git show --check --format=fuller --stat HEAD
+          fi
+
+      - name: Check required portfolio documentation
+        run: |
+          test -s portfolio/README.md
+          test -s portfolio/runbooks/recommendation-healthcheck.md
+
+      - name: Check portfolio files for credential patterns
+        shell: bash
+        run: |
+          if git grep -nEI -- \
+            '((password|passwd|token|api[_-]?key|secret)[[:space:]]*[:=][[:space:]]*[^$<{[:space:]]+|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----)' \
+            -- portfolio compose.portfolio.yaml .github/workflows/portfolio-ci.yml
+          then
+            echo "Potential credential pattern detected."
+            exit 1
+          fi
